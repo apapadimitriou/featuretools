@@ -63,7 +63,7 @@ class TestCountAboveMean(PrimitiveTestBase):
         assert np.isnan(actual) == np.isnan(expected)
 
     def test_inf(self):
-        data = pd.Series([np.NINF, 1, 2, 3, 4, 5])
+        data = pd.Series([-np.inf, 1, 2, 3, 4, 5])
         expected = 5
         primitive_func = self.primitive().get_function()
         actual = primitive_func(data)
@@ -75,7 +75,7 @@ class TestCountAboveMean(PrimitiveTestBase):
         actual = primitive_func(data)
         assert expected == actual
 
-        data = pd.Series([np.NINF, 1, 2, 3, 4, 5, np.inf])
+        data = pd.Series([-np.inf, 1, 2, 3, 4, 5, np.inf])
         expected = np.nan
         primitive_func = self.primitive().get_function()
         actual = primitive_func(data)
@@ -104,13 +104,13 @@ class TestCountGreaterThan(PrimitiveTestBase):
 
     def test_edges(self):
         data = pd.Series([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5])
-        thresholds = pd.Series([np.inf, np.NINF, None, np.nan])
+        thresholds = pd.Series([np.inf, -np.inf, None, np.nan])
         results = pd.Series([0, len(data), 0, 0])
         self.compare_results(data, thresholds, results)
 
     def test_nans(self):
-        data = pd.Series([-5, -4, -3, np.inf, np.NINF, np.nan, 1, 2, 3, 4, 5])
-        thresholds = pd.Series([np.inf, np.NINF, None, 0, np.nan])
+        data = pd.Series([-5, -4, -3, np.inf, -np.inf, np.nan, 1, 2, 3, 4, 5])
+        thresholds = pd.Series([np.inf, -np.inf, None, 0, np.nan])
         results = pd.Series([0, 9, 0, 6, 0])
         self.compare_results(data, thresholds, results)
 
@@ -282,7 +282,7 @@ class TestCountInsideRange(PrimitiveTestBase):
     def test_inf(self):
         x = pd.Series(np.linspace(-3, 3, 10))
         num_NINF = 20
-        x = pd.concat([x, pd.Series([np.NINF] * num_NINF)])
+        x = pd.concat([x, pd.Series([-np.inf] * num_NINF)])
         num_inf = 10
         x = pd.concat([x, pd.Series([np.inf] * num_inf)])
 
@@ -290,7 +290,7 @@ class TestCountInsideRange(PrimitiveTestBase):
         primitive_func = primitive_instance.get_function()
         assert primitive_func(x) == 10
 
-        primitive_instance = self.primitive(np.NINF, 3)
+        primitive_instance = self.primitive(-np.inf, 3)
         primitive_func = primitive_instance.get_function()
         assert primitive_func(x) == 10 + num_NINF
 
@@ -317,13 +317,13 @@ class TestCountLessThan(PrimitiveTestBase):
 
     def test_edges(self):
         data = pd.Series([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5])
-        thresholds = pd.Series([np.inf, np.NINF, None, np.nan])
+        thresholds = pd.Series([np.inf, -np.inf, None, np.nan])
         answers = pd.Series([len(data), 0, 0, 0])
         self.compare_answers(data, thresholds, answers)
 
     def test_nans(self):
-        data = pd.Series([-5, -4, -3, np.inf, np.NINF, np.nan, 1, 2, 3, 4, 5])
-        thresholds = pd.Series([np.inf, np.NINF, None, 0, np.nan])
+        data = pd.Series([-5, -4, -3, np.inf, -np.inf, np.nan, 1, 2, 3, 4, 5])
+        thresholds = pd.Series([np.inf, -np.inf, None, 0, np.nan])
         answers = pd.Series([9, 0, 0, 4, 0])
         self.compare_answers(data, thresholds, answers)
 
@@ -559,7 +559,7 @@ class TestCountOutsideRange(PrimitiveTestBase):
     def test_inf(self):
         x = pd.Series(np.linspace(-3, 3, 10))
         num_NINF = 20
-        x = pd.concat([x, pd.Series([np.NINF] * num_NINF)])
+        x = pd.concat([x, pd.Series([-np.inf] * num_NINF)])
         num_inf = 10
         x = pd.concat([x, pd.Series([np.inf] * num_inf)])
 
@@ -571,7 +571,7 @@ class TestCountOutsideRange(PrimitiveTestBase):
         primitive_func = primitive_instance.get_function()
         assert primitive_func(x) == 6 + num_inf + num_NINF
 
-        primitive_instance = CountOutsideRange(np.NINF, 3)
+        primitive_instance = CountOutsideRange(-np.inf, 3)
         primitive_func = primitive_instance.get_function()
         assert primitive_func(x) == num_inf
 

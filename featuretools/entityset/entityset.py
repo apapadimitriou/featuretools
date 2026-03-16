@@ -1208,9 +1208,9 @@ class EntitySet(object):
             lti = es_lti_dict[df.ww.name]
             if lti is not None:
                 if self.time_type == "numeric":
-                    if lti.dtype == "datetime64[ns]":
+                    if pd.api.types.is_datetime64_any_dtype(lti):
                         # Woodwork cannot convert from datetime to numeric
-                        lti = lti.apply(lambda x: x.value)
+                        lti = lti.astype("int64")
                     lti = init_series(lti, logical_type="Double")
                 else:
                     lti = init_series(lti, logical_type="Datetime")

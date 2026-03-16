@@ -83,7 +83,7 @@ def convert_time_units(secs, unit):
 
 
 def convert_datetime_to_floats(x):
-    first = int(x.iloc[0].value * 1e-9)
+    first = int(x.iloc[0].as_unit("ns").value * 1e-9)
     x = pd.to_numeric(x).astype(np.float64).values
     dividend = find_dividend_by_unit(first)
     x *= 1e-9 / dividend

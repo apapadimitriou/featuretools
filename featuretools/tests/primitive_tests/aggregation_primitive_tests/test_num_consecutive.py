@@ -128,11 +128,11 @@ class TestNumConsecutiveGreaterMean:
         assert primitive_func(x) == 0
 
         x = pd.Series(range(10))
-        x = pd.concat([x, pd.Series([np.NINF])])
+        x = pd.concat([x, pd.Series([-np.inf])])
         assert primitive_func(x) == 10
 
         x = pd.Series(range(10))
-        x = pd.concat([x, pd.Series([np.NINF, np.inf, np.inf])])
+        x = pd.concat([x, pd.Series([-np.inf, np.inf, np.inf])])
         assert np.isnan(primitive_func(x))
 
 
@@ -260,9 +260,9 @@ class TestNumConsecutiveLessMean:
         assert primitive_func(x) == 10
 
         x = pd.Series(range(10))
-        x = pd.concat([x, pd.Series([np.NINF])])
+        x = pd.concat([x, pd.Series([-np.inf])])
         assert primitive_func(x) == 0
 
         x = pd.Series(range(10))
-        x = pd.concat([x, pd.Series([np.NINF, np.inf, np.inf])])
+        x = pd.concat([x, pd.Series([-np.inf, np.inf, np.inf])])
         assert np.isnan(primitive_func(x))

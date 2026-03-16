@@ -2,7 +2,7 @@ import time
 from functools import wraps
 from inspect import signature
 
-import pkg_resources
+from importlib.metadata import entry_points as _iter_entry_points
 
 
 def entry_point(name):
@@ -18,7 +18,7 @@ def entry_point(name):
 
             # collect and initialize all registered entry points
             entry_points = []
-            for entry_point in pkg_resources.iter_entry_points(name):
+            for entry_point in _iter_entry_points(group=name):
                 entry_point = entry_point.load()
                 entry_points.append(entry_point())
 

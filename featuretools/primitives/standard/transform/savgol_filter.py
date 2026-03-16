@@ -117,7 +117,7 @@ class SavgolFilter(TransformPrimitive):
         def smooth(x):
             if x.shape[0] < 20:
                 return x
-            if np.isnan(np.min(x)):
+            if x.isna().any():
                 # interpolate the nan values, works for edges & middle nans
                 mask = np.isnan(x)
                 x[mask] = np.interp(

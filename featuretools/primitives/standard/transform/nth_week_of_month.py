@@ -35,7 +35,7 @@ class NthWeekOfMonth(TransformPrimitive):
             df = pd.DataFrame({"date": x})
             df["first_day"] = df.date - pd.to_timedelta(df["date"].dt.day - 1, unit="d")
             df["dom"] = df.date.dt.day
-            df["first_day_weekday"] = df.first_day.dt.weekday
+            df["first_day_weekday"] = df.first_day.dt.day_of_week
             df["adjusted_dom"] = df.dom + df.first_day_weekday + 1
             df.loc[df["first_day_weekday"].astype(float) == 6.0, "adjusted_dom"] = df[
                 "dom"

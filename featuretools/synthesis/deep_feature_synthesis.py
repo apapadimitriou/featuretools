@@ -160,6 +160,12 @@ class DeepFeatureSynthesis(object):
         feature_cache.clear_all()
         feature_cache.enabled = True
 
+        # Cache for expanded + depth-filtered features in _features_by_type
+        self._depth_filtered_cache: Dict[
+            Tuple[str, int, int],
+            List[Any],
+        ] = {}
+
         # need to change max_depth to None because DFs terminates when  <0
         if max_depth == -1:
             max_depth = None
@@ -902,45 +908,62 @@ class DeepFeatureSynthesis(object):
         if max_depth is not None and max_depth < 0:
             return []
 
-        if dataframe.ww.name not in all_features:
+        dataframe_name = dataframe.ww.name
+        if dataframe_name not in all_features:
             return []
 
-        def expand_features(feature) -> List[Any]:
-            """Internal method to return either the single feature
-                or the output features
+        # Cache the expanded and depth-filtered feature list per
+        # (dataframe_name, max_depth, feature_count). The feature count is used
+        # to detect when all_features has been mutated since the last call.
+        # This avoids redundant expansion + depth filtering across the many
+        # calls with different column_schemas but the same dataframe/depth.
+        df_features = all_features[dataframe_name]
+        n_features = len(df_features)
+        cache_key = (dataframe_name, max_depth, n_features)
 
-            Args:
-                feature (Feature): Feature instance
+        if cache_key in self._depth_filtered_cache:
+            selected_features = self._depth_filtered_cache[cache_key]
+        else:
 
-            Returns:
-                List[Any]: list of features
-            """
-            outputs = feature.number_output_features
-            if outputs > 1:
-                return [feature[i] for i in range(outputs)]
-            return [feature]
+            def expand_features(feature) -> List[Any]:
+                """Internal method to return either the single feature
+                    or the output features
 
-        # Build the complete list of features prior to processing
-        selected_features = [
-            expand_features(feature)
-            for feature in all_features[dataframe.ww.name].values()
-        ]
-        selected_features = functools.reduce(operator.iconcat, selected_features, [])
+                Args:
+                    feature (Feature): Feature instance
+
+                Returns:
+                    List[Any]: list of features
+                """
+                outputs = feature.number_output_features
+                if outputs > 1:
+                    return [feature[i] for i in range(outputs)]
+                return [feature]
+
+            # Build the complete list of features prior to processing
+            selected_features = [
+                expand_features(feature) for feature in df_features.values()
+            ]
+            selected_features = functools.reduce(
+                operator.iconcat,
+                selected_features,
+                [],
+            )
+
+            if max_depth is not None:
+                seed_features = self.seed_features
+                selected_features = [
+                    feature
+                    for feature in selected_features
+                    if get_feature_depth(feature, stop_at=seed_features) <= max_depth
+                ]
+
+            self._depth_filtered_cache[cache_key] = selected_features
 
         column_schemas = column_schemas if column_schemas else set()
 
-        if max_depth is None and column_schemas == "all":
+        if column_schemas == "all":
             return selected_features
-
-        # assigning seed_features locally adds a slight performance benefit by not having to look
-        # up the property for each round of the comprehension
-        seed_features = self.seed_features
-        if max_depth is not None:
-            selected_features = [
-                feature
-                for feature in selected_features
-                if get_feature_depth(feature, stop_at=seed_features) <= max_depth
-            ]
 
         def valid_input(column_schema) -> bool:
             """Helper method to validate the feature schema
@@ -1321,7 +1344,8 @@ def get_feature_depth(feature, stop_at=None):
     local to DFS.
     """
     hash_key = hash(f"{feature.get_name()}{feature.dataframe_name}{stop_at}")
-    if cached_depth := feature_cache.get(CacheType.DEPTH, hash_key):
+    cached_depth = feature_cache.get(CacheType.DEPTH, hash_key)
+    if cached_depth is not None:
         return cached_depth
     depth = feature.get_depth(stop_at=stop_at)
     feature_cache.add(CacheType.DEPTH, hash_key, depth)

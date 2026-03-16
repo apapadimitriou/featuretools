@@ -32,6 +32,6 @@ class DayOfYear(TransformPrimitive):
 
     def get_function(self):
         def dayOfYear(vals):
-            return vals.dt.dayofyear
+            return vals.dt.day_of_year
 
         return dayOfYear

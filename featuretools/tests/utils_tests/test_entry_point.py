@@ -35,22 +35,23 @@ class MockEntryPoint(object):
         return self
 
 
-class MockPkgResources(object):
-    def __init__(self, entry_point):
-        self.entry_point = entry_point
+def _mock_iter_entry_points(entry_point):
+    """Return a function that mimics importlib.metadata.entry_points(group=...)."""
 
-    def iter_entry_points(self, name):
-        return [self.entry_point]
+    def _mock(group=None):
+        return [entry_point]
+
+    return _mock
 
 
 def test_entry_point(es, monkeypatch):
     entry_point = MockEntryPoint()
-    # overrides a module used in the entry_point decorator for dfs
+    # overrides the _iter_entry_points function used in the entry_point decorator for dfs
     # so the decorator will use this mock entry point
     monkeypatch.setitem(
         dfs.__globals__["entry_point"].__globals__,
-        "pkg_resources",
-        MockPkgResources(entry_point),
+        "_iter_entry_points",
+        _mock_iter_entry_points(entry_point),
     )
     fm, fl = dfs(entityset=es, target_dataframe_name="customers")
     assert "entityset" in entry_point.kwargs.keys()
@@ -62,8 +63,8 @@ def test_entry_point_error(es, monkeypatch):
     entry_point = MockEntryPoint()
     monkeypatch.setitem(
         dfs.__globals__["entry_point"].__globals__,
-        "pkg_resources",
-        MockPkgResources(entry_point),
+        "_iter_entry_points",
+        _mock_iter_entry_points(entry_point),
     )
     with pytest.raises(KeyError):
         dfs(entityset=es, target_dataframe_name="missing_dataframe")
@@ -91,8 +92,8 @@ def test_entry_point_detect_arg(monkeypatch, entry_points_dfs):
     entry_point = MockEntryPoint()
     monkeypatch.setitem(
         dfs.__globals__["entry_point"].__globals__,
-        "pkg_resources",
-        MockPkgResources(entry_point),
+        "_iter_entry_points",
+        _mock_iter_entry_points(entry_point),
     )
     fm, fl = dfs(dataframes, relationships, target_dataframe_name="cards")
     assert "dataframes" in entry_point.kwargs.keys()

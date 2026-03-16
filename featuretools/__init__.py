@@ -28,23 +28,23 @@ from featuretools.feature_base import (
 )
 
 import logging
-import pkg_resources
 import sys
 import traceback
 import warnings
+from importlib.metadata import entry_points as _iter_entry_points
 from woodwork import list_logical_types, list_semantic_tags
 
 logger = logging.getLogger("featuretools")
 
 # Call functions registered by other libraries when featuretools is imported
-for entry_point in pkg_resources.iter_entry_points("featuretools_initialize"):
+for entry_point in _iter_entry_points(group="featuretools_initialize"):
     try:
         method = entry_point.load()
         if callable(method):
             method()
     except Exception:
         pass
-for entry_point in pkg_resources.iter_entry_points("alteryx_open_src_initialize"):
+for entry_point in _iter_entry_points(group="alteryx_open_src_initialize"):
     try:
         method = entry_point.load()
         if callable(method):
@@ -53,11 +53,11 @@ for entry_point in pkg_resources.iter_entry_points("alteryx_open_src_initialize"
         pass
 
 # Load in submodules registered by other libraries into Featuretools namespace
-for entry_point in pkg_resources.iter_entry_points("featuretools_plugin"):
+for entry_point in _iter_entry_points(group="featuretools_plugin"):
     try:
         sys.modules["featuretools." + entry_point.name] = entry_point.load()
     except Exception:
         message = "Featuretools failed to load plugin {} from library {}. "
         message += "For a full stack trace, set logging to debug."
-        logger.warning(message.format(entry_point.name, entry_point.module_name))
+        logger.warning(message.format(entry_point.name, entry_point.value))
         logger.debug(traceback.format_exc())

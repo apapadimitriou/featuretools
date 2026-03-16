@@ -265,8 +265,8 @@ class TestSavgolFilter(PrimitiveTestBase):
         primitive_func = self.primitive().get_function()
         data_nans = self.data.copy()
         data_nans = pd.concat([data_nans, pd.Series([np.nan] * 5, dtype="float64")])
-        # more than 5 nans due to window
-        assert sum(np.isnan(primitive_func(data_nans))) == 15
+        # NaN values are interpolated before filtering, so output has no NaNs
+        assert sum(np.isnan(primitive_func(data_nans))) == 0
 
     def test_with_featuretools(self, es):
         transform, aggregation = find_applicable_primitives(self.primitive)

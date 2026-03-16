@@ -49,7 +49,7 @@ class TestAbsoluteDiff:
         np.testing.assert_array_equal(given_answer, answer)
 
     def test_inf(self):
-        data = pd.Series([0, np.inf, 0, 5, np.NINF, np.inf, np.NINF])
+        data = pd.Series([0, np.inf, 0, 5, -np.inf, np.inf, -np.inf])
         answer = pd.Series([np.nan, np.inf, np.inf, 5, np.inf, np.inf, np.inf])
         primitive_func = AbsoluteDiff().get_function()
         given_answer = primitive_func(data)

@@ -269,7 +269,7 @@ class TestKurtosis(PrimitiveTestBase):
         given_answer = primitive_func(data)
         assert pd.isna(given_answer)
 
-        data = pd.Series([np.NINF, 1, np.inf], dtype="float64")
+        data = pd.Series([-np.inf, 1, np.inf], dtype="float64")
         primitive_func = self.primitive().get_function()
         given_answer = primitive_func(data)
         assert pd.isna(given_answer)
@@ -325,7 +325,7 @@ class TestNumZeroCrossings(PrimitiveTestBase):
         given_answer = primtive_func(data)
         assert given_answer == answer
 
-        data = pd.Series([np.NINF, 1, np.inf])
+        data = pd.Series([-np.inf, 1, np.inf])
         answer = 1
         primtive_func = self.primitive().get_function()
         given_answer = primtive_func(data)
@@ -697,7 +697,7 @@ class TestMinCount(PrimitiveTestBase):
         assert pd.isna(answer)
 
     def test_ninf(self):
-        data = pd.Series([np.NINF, np.NINF, np.nan])
+        data = pd.Series([-np.inf, -np.inf, np.nan])
         primitive_func = self.primitive().get_function()
         answer = primitive_func(data)
         assert answer == 2
@@ -742,7 +742,7 @@ class TestMaxCount(PrimitiveTestBase):
         assert pd.isna(answer)
 
     def test_ninf(self):
-        data = pd.Series([np.NINF, np.NINF, np.nan])
+        data = pd.Series([-np.inf, -np.inf, np.nan])
         primitive_func = self.primitive().get_function()
         answer = primitive_func(data)
         assert answer == 2

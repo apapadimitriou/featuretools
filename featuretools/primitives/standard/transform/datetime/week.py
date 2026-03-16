@@ -33,9 +33,6 @@ class Week(TransformPrimitive):
 
     def get_function(self):
         def week(vals):
-            if hasattr(vals.dt, "isocalendar"):
-                return vals.dt.isocalendar().week
-            else:
-                return vals.dt.week
+            return vals.dt.isocalendar().week.astype("int64")
 
         return week

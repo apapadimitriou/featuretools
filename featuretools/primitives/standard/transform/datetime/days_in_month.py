@@ -28,6 +28,6 @@ class DaysInMonth(TransformPrimitive):
 
     def get_function(self):
         def days_in_month(vals):
-            return vals.dt.daysinmonth
+            return vals.dt.days_in_month
 
         return days_in_month

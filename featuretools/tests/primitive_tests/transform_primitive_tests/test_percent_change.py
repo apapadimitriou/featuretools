@@ -46,14 +46,14 @@ class TestPercentChange(PrimitiveTestBase):
 
     def test_zero(self):
         data = pd.Series([2, 0, 0, 5, 0, -4])
-        answer = pd.Series([np.nan, -1, np.nan, np.inf, -1, np.NINF])
+        answer = pd.Series([np.nan, -1, np.nan, np.inf, -1, -np.inf])
         primtive_func = self.primitive().get_function()
         given_answer = primtive_func(data)
         np.testing.assert_array_equal(given_answer, answer)
 
     def test_inf(self):
-        data = pd.Series([0, np.inf, 0, 5, np.NINF, np.inf, np.NINF])
-        answer = pd.Series([np.nan, np.inf, -1, np.inf, np.NINF, np.nan, np.nan])
+        data = pd.Series([0, np.inf, 0, 5, -np.inf, np.inf, -np.inf])
+        answer = pd.Series([np.nan, np.inf, -1, np.inf, -np.inf, np.nan, np.nan])
         primtive_func = self.primitive().get_function()
         given_answer = primtive_func(data)
         np.testing.assert_array_equal(given_answer, answer)

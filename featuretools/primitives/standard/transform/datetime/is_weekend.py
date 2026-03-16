@@ -25,6 +25,6 @@ class IsWeekend(TransformPrimitive):
 
     def get_function(self):
         def is_weekend(vals):
-            return vals.dt.weekday > 4
+            return vals.dt.day_of_week > 4
 
         return is_weekend

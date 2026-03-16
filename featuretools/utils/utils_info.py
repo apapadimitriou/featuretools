@@ -4,7 +4,7 @@ import platform
 import struct
 import sys
 
-import pkg_resources
+from importlib.metadata import distributions
 
 import featuretools
 
@@ -81,8 +81,8 @@ def get_sys_info():
 
 def get_installed_packages():
     installed_packages = {}
-    for d in pkg_resources.working_set:
-        installed_packages[d.project_name] = d.version
+    for d in distributions():
+        installed_packages[d.metadata["Name"]] = d.version
     return installed_packages
 
 

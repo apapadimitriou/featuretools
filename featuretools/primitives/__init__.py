@@ -3,7 +3,7 @@ import inspect
 import logging
 import traceback
 
-import pkg_resources
+from importlib.metadata import entry_points as _iter_entry_points
 
 from featuretools.primitives.standard import *
 from featuretools.primitives.utils import (
@@ -47,11 +47,11 @@ def _load_primitives():
     logger = logging.getLogger("featuretools")
     base_primitives = AggregationPrimitive, TransformPrimitive  # noqa: F405
 
-    for entry_point in pkg_resources.iter_entry_points("featuretools_primitives"):
+    for entry_point in _iter_entry_points(group="featuretools_primitives"):
         try:
             loaded = entry_point.load()
         except Exception:
-            message = f'Featuretools failed to load "{entry_point.name}" primitives from "{entry_point.module_name}". '
+            message = f'Featuretools failed to load "{entry_point.name}" primitives from "{entry_point.value}". '
             message += "For a full stack trace, set logging to debug."
             logger.warning(message)
             logger.debug(traceback.format_exc())

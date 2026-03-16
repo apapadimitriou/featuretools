@@ -32,6 +32,6 @@ class Weekday(TransformPrimitive):
 
     def get_function(self):
         def weekday(vals):
-            return vals.dt.weekday
+            return vals.dt.day_of_week
 
         return weekday
