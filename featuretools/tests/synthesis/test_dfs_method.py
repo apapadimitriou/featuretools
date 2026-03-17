@@ -625,7 +625,7 @@ def test_calls_progress_callback(dataframes, relationships):
     assert np.isclose(mock_progress_callback.total_progress_percent, 100.0)
 
 
-def test_calls_progress_callback_cluster(dataframes, relationships, dask_cluster):
+def test_calls_progress_callback_parallel(dataframes, relationships):
     class MockProgressCallback:
         def __init__(self):
             self.progress_history = []
@@ -639,40 +639,26 @@ def test_calls_progress_callback_cluster(dataframes, relationships, dask_cluster
 
     mock_progress_callback = MockProgressCallback()
 
-    dkwargs = {"cluster": dask_cluster.scheduler.address}
     dfs(
         dataframes=dataframes,
         relationships=relationships,
         target_dataframe_name="transactions",
         progress_callback=mock_progress_callback,
-        dask_kwargs=dkwargs,
+        n_jobs=2,
     )
 
     assert np.isclose(mock_progress_callback.total_update, 100.0)
     assert np.isclose(mock_progress_callback.total_progress_percent, 100.0)
 
 
-def test_dask_kwargs(dataframes, relationships, dask_cluster):
+def test_dask_kwargs_deprecation_warning(dataframes, relationships):
     cutoff_times_df = pd.DataFrame({"instance_id": [1, 2, 3], "time": [10, 12, 15]})
-    feature_matrix, features = dfs(
-        dataframes=dataframes,
-        relationships=relationships,
-        target_dataframe_name="transactions",
-        cutoff_time=cutoff_times_df,
-    )
 
-    dask_kwargs = {"cluster": dask_cluster.scheduler.address}
-    feature_matrix_2, features_2 = dfs(
-        dataframes=dataframes,
-        relationships=relationships,
-        target_dataframe_name="transactions",
-        cutoff_time=cutoff_times_df,
-        dask_kwargs=dask_kwargs,
-    )
-
-    assert all(
-        f1.unique_name() == f2.unique_name() for f1, f2 in zip(features, features_2)
-    )
-    for column in feature_matrix:
-        for x, y in zip(feature_matrix[column], feature_matrix_2[column]):
-            assert (pd.isnull(x) and pd.isnull(y)) or (x == y)
+    with pytest.warns(FutureWarning, match="dask_kwargs is deprecated"):
+        dfs(
+            dataframes=dataframes,
+            relationships=relationships,
+            target_dataframe_name="transactions",
+            cutoff_time=cutoff_times_df,
+            dask_kwargs={"cluster": "tcp://127.0.0.1:54321"},
+        )

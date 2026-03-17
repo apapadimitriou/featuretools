@@ -184,19 +184,10 @@ def dfs(
             percentage of all instances. If passed the string "cutoff time",
             rows are split per cutoff time.
 
-        dask_kwargs (dict, optional): Dictionary of keyword arguments to be
-            passed when creating the dask client and scheduler. Even if n_jobs
-            is not set, using `dask_kwargs` will enable multiprocessing.
-            Main parameters:
-
-            cluster (str or dask.distributed.LocalCluster):
-                cluster or address of cluster to send tasks to. If unspecified,
-                a cluster will be created.
-            diagnostics port (int):
-                port number to use for web dashboard.  If left unspecified, web
-                interface will not be enabled.
-
-            Valid keyword arguments for LocalCluster will also be accepted.
+        dask_kwargs (dict, optional): Deprecated. Previously used for Dask
+            client and scheduler configuration. Parallel computation now uses
+            ``concurrent.futures.ProcessPoolExecutor`` via the ``n_jobs``
+            parameter. This parameter will be removed in a future version.
 
         return_types (list[woodwork.ColumnSchema] or str, optional):
             List of ColumnSchemas defining the types of
@@ -239,6 +230,15 @@ def dfs(
                            target_dataframe_name="transactions",
                            features_only=True)
     """
+    if dask_kwargs:
+        warnings.warn(
+            "dask_kwargs is deprecated. Parallel computation now uses "
+            "concurrent.futures.ProcessPoolExecutor. The dask_kwargs "
+            "parameter will be removed in a future version.",
+            FutureWarning,
+            stacklevel=2,
+        )
+
     if not isinstance(entityset, EntitySet):
         entityset = EntitySet("dfs", dataframes, relationships)
 

@@ -66,10 +66,7 @@ test = [
     "urllib3 >= 1.26.18",
     "pytest-timeout >= 2.1.0",
 ]
-dask = [
-    "dask[dataframe] >= 2023.2.0",
-    "distributed >= 2023.2.0",
-]
+dask = []
 tsfresh = [
     "featuretools-tsfresh-primitives >= 1.0.0",
 ]
@@ -103,16 +100,16 @@ docs = [
     "myst-parser == 0.18.0",
     "autonormalize >= 2.0.1",
     "click >= 7.0.0",
-    "featuretools[dask,test]",
+    "featuretools[test]",
 ]
 dev = [
     "ruff >= 0.1.6",
     "black[jupyter] >= 23.1.0",
     "pre-commit >= 2.20.0",
-    "featuretools[docs,dask,test]",
+    "featuretools[docs,test]",
 ]
 complete = [
-    "featuretools[premium,nlp,dask]",
+    "featuretools[premium,nlp]",
 ]
 
 [tool.setuptools]

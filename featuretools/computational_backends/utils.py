@@ -1,7 +1,6 @@
 import logging
 import os
 import typing
-import warnings
 from datetime import datetime
 from functools import wraps
 
@@ -13,7 +12,6 @@ from woodwork.logical_types import Datetime, Double
 from featuretools.entityset.relationship import RelationshipPath
 from featuretools.feature_base import AggregationFeature, DirectFeature
 from featuretools.utils import Trie
-from featuretools.utils.gen_utils import import_or_none
 from featuretools.utils.wrangle import _check_time_type, _check_timedelta
 
 logger = logging.getLogger("featuretools.computational_backend")
@@ -136,87 +134,6 @@ def n_jobs_to_workers(n_jobs):
 
     assert workers > 0, "Need at least one worker"
     return workers
-
-
-def create_client_and_cluster(n_jobs, dask_kwargs, entityset_size):
-    Client, LocalCluster = get_client_cluster()
-
-    cluster = None
-    if "cluster" in dask_kwargs:
-        cluster = dask_kwargs["cluster"]
-    else:
-        # diagnostics_port sets the default port to launch bokeh web interface
-        # if it is set to None web interface will not be launched
-        diagnostics_port = None
-        if "diagnostics_port" in dask_kwargs:
-            diagnostics_port = dask_kwargs["diagnostics_port"]
-            del dask_kwargs["diagnostics_port"]
-
-        workers = n_jobs_to_workers(n_jobs)
-        if n_jobs != -1 and workers < n_jobs:
-            warning_string = "{} workers requested, but only {} workers created."
-            warning_string = warning_string.format(n_jobs, workers)
-            warnings.warn(warning_string)
-
-        # Distributed default memory_limit for worker is 'auto'. It calculates worker
-        # memory limit as total virtual memory divided by the number
-        # of cores available to the workers (alwasy 1 for featuretools setup).
-        # This means reducing the number of workers does not increase the memory
-        # limit for other workers.  Featuretools default is to calculate memory limit
-        # as total virtual memory divided by number of workers. To use distributed
-        # default memory limit, set dask_kwargs['memory_limit']='auto'
-        if "memory_limit" in dask_kwargs:
-            memory_limit = dask_kwargs["memory_limit"]
-            del dask_kwargs["memory_limit"]
-        else:
-            total_memory = psutil.virtual_memory().total
-            memory_limit = int(total_memory / float(workers))
-
-        cluster = LocalCluster(
-            n_workers=workers,
-            threads_per_worker=1,
-            diagnostics_port=diagnostics_port,
-            memory_limit=memory_limit,
-            **dask_kwargs,
-        )
-
-        # if cluster has bokeh port, notify user if unexpected port number
-        if diagnostics_port is not None:
-            if hasattr(cluster, "scheduler") and cluster.scheduler:
-                info = cluster.scheduler.identity()
-                if "bokeh" in info["services"]:
-                    msg = "Dashboard started on port {}"
-                    print(msg.format(info["services"]["bokeh"]))
-
-    client = Client(cluster)
-
-    warned_of_memory = False
-    for worker in list(client.scheduler_info()["workers"].values()):
-        worker_limit = worker["memory_limit"]
-        if worker_limit < entityset_size:
-            raise ValueError("Insufficient memory to use this many workers")
-        elif worker_limit < 2 * entityset_size and not warned_of_memory:
-            logger.warning(
-                "Worker memory is between 1 to 2 times the memory"
-                " size of the EntitySet. If errors occur that do"
-                " not occur with n_jobs equals 1, this may be the "
-                "cause.  See https://featuretools.alteryx.com/en/stable/guides/performance.html#parallel-feature-computation"
-                " for more information.",
-            )
-            warned_of_memory = True
-
-    return client, cluster
-
-
-def get_client_cluster():
-    """
-    Separated out the imports to make it easier to mock during testing
-    """
-    distributed = import_or_none("distributed")
-    Client = distributed.Client
-    LocalCluster = distributed.LocalCluster
-
-    return Client, LocalCluster
 
 
 CutoffTimeType = typing.Union[pd.DataFrame, str, datetime]

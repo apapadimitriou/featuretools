@@ -1,4 +1,3 @@
-import logging
 import os
 import re
 import shutil
@@ -29,16 +28,13 @@ from featuretools import (
     calculate_feature_matrix,
     dfs,
 )
-from featuretools.computational_backends import utils
 from featuretools.computational_backends.calculate_feature_matrix import (
     FEATURE_CALCULATION_PERCENTAGE,
     _chunk_dataframe_groups,
     _handle_chunk_size,
-    scatter_warning,
 )
 from featuretools.computational_backends.utils import (
     bin_cutoff_times,
-    create_client_and_cluster,
     n_jobs_to_workers,
 )
 from featuretools.feature_base import (
@@ -57,20 +53,7 @@ from featuretools.primitives import (
     Sum,
     TransformPrimitive,
 )
-from featuretools.tests.testing_utils import (
-    backward_path,
-    get_mock_client_cluster,
-)
-
-
-def test_scatter_warning(caplog):
-    logger = logging.getLogger("featuretools")
-    match = "EntitySet was only scattered to {} out of {} workers"
-    warning_message = match.format(1, 2)
-    logger.propagate = True
-    scatter_warning(1, 2)
-    logger.propagate = False
-    assert warning_message in caplog.text
+from featuretools.tests.testing_utils import backward_path
 
 
 def test_calc_feature_matrix(es):
@@ -1490,7 +1473,7 @@ def test_cfm_returns_original_time_indexes_approximate(es):
     assert (time_level_vals == cutoff_df["time"].values).all()
 
 
-def test_dask_kwargs(es, dask_cluster):
+def test_parallel_n_jobs(es):
     times = (
         [datetime(2011, 4, 9, 10, 30, i * 6) for i in range(5)]
         + [datetime(2011, 4, 9, 10, 31, i * 9) for i in range(4)]
@@ -1503,21 +1486,20 @@ def test_dask_kwargs(es, dask_cluster):
     cutoff_time = pd.DataFrame({"time": times, "instance_id": range(17)})
     property_feature = IdentityFeature(es["log"].ww["value"]) > 10
 
-    dkwargs = {"cluster": dask_cluster.scheduler.address}
     feature_matrix = calculate_feature_matrix(
         [property_feature],
         entityset=es,
         cutoff_time=cutoff_time,
         verbose=True,
         chunk_size=0.13,
-        dask_kwargs=dkwargs,
+        n_jobs=2,
         approximate="1 hour",
     )
 
     assert (feature_matrix[property_feature.get_name()] == labels).values.all()
 
 
-def test_dask_persisted_es(es, capsys, dask_cluster):
+def test_dask_kwargs_deprecation_warning(es):
     times = (
         [datetime(2011, 4, 9, 10, 30, i * 6) for i in range(5)]
         + [datetime(2011, 4, 9, 10, 31, i * 9) for i in range(4)]
@@ -1526,103 +1508,26 @@ def test_dask_persisted_es(es, capsys, dask_cluster):
         + [datetime(2011, 4, 10, 10, 41, i * 3) for i in range(3)]
         + [datetime(2011, 4, 10, 11, 10, i * 3) for i in range(2)]
     )
-    labels = [False] * 3 + [True] * 2 + [False] * 9 + [True] + [False] * 2
     cutoff_time = pd.DataFrame({"time": times, "instance_id": range(17)})
     property_feature = IdentityFeature(es["log"].ww["value"]) > 10
 
-    dkwargs = {"cluster": dask_cluster.scheduler.address}
-    feature_matrix = calculate_feature_matrix(
-        [property_feature],
-        entityset=es,
-        cutoff_time=cutoff_time,
-        verbose=True,
-        chunk_size=0.13,
-        dask_kwargs=dkwargs,
-        approximate="1 hour",
-    )
-    assert (feature_matrix[property_feature.get_name()] == labels).values.all()
-    feature_matrix = calculate_feature_matrix(
-        [property_feature],
-        entityset=es,
-        cutoff_time=cutoff_time,
-        verbose=True,
-        chunk_size=0.13,
-        dask_kwargs=dkwargs,
-        approximate="1 hour",
-    )
-    captured = capsys.readouterr()
-    assert "Using EntitySet persisted on the cluster as dataset " in captured[0]
-    assert (feature_matrix[property_feature.get_name()] == labels).values.all()
+    import warnings
 
-
-class TestCreateClientAndCluster(object):
-    def test_user_cluster_as_string(self, monkeypatch):
-        monkeypatch.setattr(utils, "get_client_cluster", get_mock_client_cluster)
-        # cluster in dask_kwargs case
-        client, cluster = create_client_and_cluster(
-            n_jobs=2,
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        calculate_feature_matrix(
+            [property_feature],
+            entityset=es,
+            cutoff_time=cutoff_time,
+            verbose=True,
+            chunk_size=0.13,
             dask_kwargs={"cluster": "tcp://127.0.0.1:54321"},
-            entityset_size=1,
+            approximate="1 hour",
         )
-        assert cluster == "tcp://127.0.0.1:54321"
-
-    def test_cluster_creation(self, monkeypatch):
-        total_memory = psutil.virtual_memory().total
-        monkeypatch.setattr(utils, "get_client_cluster", get_mock_client_cluster)
-        try:
-            cpus = len(psutil.Process().cpu_affinity())
-        except AttributeError:  # pragma: no cover
-            cpus = psutil.cpu_count()
-
-        # jobs < tasks case
-        client, cluster = create_client_and_cluster(
-            n_jobs=2,
-            dask_kwargs={},
-            entityset_size=1,
-        )
-        num_workers = min(cpus, 2)
-        memory_limit = int(total_memory / float(num_workers))
-        assert cluster == (min(cpus, 2), 1, None, memory_limit)
-        # jobs > tasks case
-        match = r".*workers requested, but only .* workers created"
-        with pytest.warns(UserWarning, match=match) as record:
-            client, cluster = create_client_and_cluster(
-                n_jobs=1000,
-                dask_kwargs={"diagnostics_port": 8789},
-                entityset_size=1,
-            )
-        assert len(record) == 1
-
-        num_workers = cpus
-        memory_limit = int(total_memory / float(num_workers))
-        assert cluster == (num_workers, 1, 8789, memory_limit)
-
-        # dask_kwargs sets memory limit
-        client, cluster = create_client_and_cluster(
-            n_jobs=2,
-            dask_kwargs={"diagnostics_port": 8789, "memory_limit": 1000},
-            entityset_size=1,
-        )
-        num_workers = min(cpus, 2)
-        assert cluster == (num_workers, 1, 8789, 1000)
-
-    def test_not_enough_memory(self, monkeypatch):
-        total_memory = psutil.virtual_memory().total
-        monkeypatch.setattr(utils, "get_client_cluster", get_mock_client_cluster)
-        # errors if not enough memory for each worker to store the entityset
-        with pytest.raises(ValueError, match=""):
-            create_client_and_cluster(
-                n_jobs=1,
-                dask_kwargs={},
-                entityset_size=total_memory * 2,
-            )
-
-        # does not error even if worker memory is less than 2x entityset size
-        create_client_and_cluster(
-            n_jobs=1,
-            dask_kwargs={},
-            entityset_size=total_memory * 0.75,
-        )
+        future_warnings = [x for x in w if issubclass(x.category, FutureWarning)]
+        assert len(future_warnings) >= 1
+        assert "dask_kwargs" in str(future_warnings[0].message)
+        assert "deprecated" in str(future_warnings[0].message)
 
 
 def test_parallel_failure_raises_correct_error(es):
@@ -1653,17 +1558,15 @@ def test_parallel_failure_raises_correct_error(es):
 def test_warning_not_enough_chunks(
     es,
     capsys,
-    three_worker_dask_cluster,
 ):  # pragma: no cover
     property_feature = IdentityFeature(es["log"].ww["value"]) > 10
 
-    dkwargs = {"cluster": three_worker_dask_cluster.scheduler.address}
     calculate_feature_matrix(
         [property_feature],
         entityset=es,
         chunk_size=0.5,
         verbose=True,
-        dask_kwargs=dkwargs,
+        n_jobs=3,
     )
 
     captured = capsys.readouterr()
@@ -1689,7 +1592,7 @@ def test_n_jobs():
         n_jobs_to_workers(0)
 
 
-def test_parallel_cutoff_time_column_pass_through(es, dask_cluster):
+def test_parallel_cutoff_time_column_pass_through(es):
     times = (
         [datetime(2011, 4, 9, 10, 30, i * 6) for i in range(5)]
         + [datetime(2011, 4, 9, 10, 31, i * 9) for i in range(4)]
@@ -1704,13 +1607,12 @@ def test_parallel_cutoff_time_column_pass_through(es, dask_cluster):
     )
     property_feature = IdentityFeature(es["log"].ww["value"]) > 10
 
-    dkwargs = {"cluster": dask_cluster.scheduler.address}
     feature_matrix = calculate_feature_matrix(
         [property_feature],
         entityset=es,
         cutoff_time=cutoff_time,
         verbose=True,
-        dask_kwargs=dkwargs,
+        n_jobs=2,
         approximate="1 hour",
     )
 
@@ -2095,7 +1997,7 @@ def test_calls_progress_callback(mock_customer):
     assert np.isclose(mock_progress_callback.total_progress_percent, 100.0)
 
 
-def test_calls_progress_callback_cluster(mock_customer, dask_cluster):
+def test_calls_progress_callback_parallel(mock_customer):
     class MockProgressCallback:
         def __init__(self):
             self.progress_history = []
@@ -2121,12 +2023,11 @@ def test_calls_progress_callback_cluster(mock_customer, dask_cluster):
     )
     features = [trans_per_session, Feature(trans_per_customer, "sessions")]
 
-    dkwargs = {"cluster": dask_cluster.scheduler.address}
     calculate_feature_matrix(
         features,
         entityset=mock_customer,
         progress_callback=mock_progress_callback,
-        dask_kwargs=dkwargs,
+        n_jobs=2,
     )
 
     assert np.isclose(mock_progress_callback.total_update, 100.0)

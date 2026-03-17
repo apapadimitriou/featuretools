@@ -1,5 +1,7 @@
+import concurrent.futures
 import logging
 import math
+import multiprocessing
 import os
 import shutil
 import time
@@ -26,19 +28,16 @@ from featuretools.computational_backends.utils import (
     _check_cutoff_time_type,
     _validate_cutoff_time,
     bin_cutoff_times,
-    create_client_and_cluster,
     gather_approximate_features,
     gen_empty_approx_features_df,
     get_ww_types_from_features,
+    n_jobs_to_workers,
     save_csv_decorator,
 )
 from featuretools.entityset.relationship import RelationshipPath
 from featuretools.feature_base import AggregationFeature, FeatureBase
 from featuretools.utils import Trie
-from featuretools.utils.gen_utils import (
-    import_or_raise,
-    make_tqdm_iterator,
-)
+from featuretools.utils.gen_utils import make_tqdm_iterator
 
 logger = logging.getLogger("featuretools.computational_backend")
 
@@ -122,21 +121,11 @@ def calculate_feature_matrix(
             percentage of all rows. if None, and n_jobs > 1 it will be set to 1/n_jobs
 
         n_jobs (int, optional): number of parallel processes to use when
-            calculating feature matrix. Requires Dask if not equal to 1.
+            calculating feature matrix.
 
-        dask_kwargs (dict, optional): Dictionary of keyword arguments to be
-            passed when creating the dask client and scheduler. Even if n_jobs
-            is not set, using `dask_kwargs` will enable multiprocessing.
-            Main parameters:
-
-            cluster (str or dask.distributed.LocalCluster):
-                cluster or address of cluster to send tasks to. If unspecified,
-                a cluster will be created.
-            diagnostics port (int):
-                port number to use for web dashboard.  If left unspecified, web
-                interface will not be enabled.
-
-            Valid keyword arguments for LocalCluster will also be accepted.
+        dask_kwargs (dict, optional): Deprecated. Previously used for Dask
+            configuration. This parameter is ignored. Parallel computation
+            now uses ``concurrent.futures.ProcessPoolExecutor``.
 
         save_progress (str, optional): path to save intermediate computational results.
 
@@ -293,8 +282,20 @@ def calculate_feature_matrix(
         # allows us to utilize progress_bar updates without printing to anywhere
         tqdm_options.update({"file": open(os.devnull, "w"), "disable": False})
 
+    if dask_kwargs is not None:
+        warnings.warn(
+            "The 'dask_kwargs' parameter is deprecated. Parallel computation "
+            "now uses concurrent.futures.ProcessPoolExecutor. Set 'n_jobs' to "
+            "control parallelism instead.",
+            FutureWarning,
+            stacklevel=2,
+        )
+        if n_jobs == 1:
+            # Preserve backward compat: dask_kwargs alone used to enable parallelism
+            n_jobs = -1
+
     with make_tqdm_iterator(**tqdm_options) as progress_bar:
-        if n_jobs != 1 or dask_kwargs is not None:
+        if n_jobs != 1:
             feature_matrix = parallel_calculate_chunks(
                 cutoff_time=cutoff_time_to_pass,
                 chunk_size=chunk_size,
@@ -309,7 +310,6 @@ def calculate_feature_matrix(
                 target_time=target_time,
                 pass_columns=pass_columns,
                 progress_bar=progress_bar,
-                dask_kwargs=dask_kwargs or {},
                 progress_callback=progress_callback,
                 include_cutoff_time=include_cutoff_time,
             )
@@ -688,10 +688,46 @@ def approximate_features(
     return approx_fms_trie
 
 
-def scatter_warning(num_scattered_workers, num_workers):
-    if num_scattered_workers != num_workers:
-        scatter_warning = "EntitySet was only scattered to {} out of {} workers"
-        logger.warning(scatter_warning.format(num_scattered_workers, num_workers))
+# Module-level worker state for ProcessPoolExecutor workers
+_worker_data = {}
+
+
+def _init_worker(pickled_entityset, pickled_feature_set):
+    """Initialize worker process with deserialized EntitySet and FeatureSet."""
+    _worker_data["entityset"] = cloudpickle.loads(pickled_entityset)
+    _worker_data["feature_set"] = cloudpickle.loads(pickled_feature_set)
+
+
+def _worker_calculate_chunk(
+    chunk,
+    approximate,
+    training_window,
+    save_progress,
+    no_unapproximated_aggs,
+    cutoff_df_time_col,
+    target_time,
+    pass_columns,
+    include_cutoff_time,
+    schema,
+):
+    """Worker function that uses pre-initialized EntitySet and FeatureSet."""
+    return calculate_chunk(
+        cutoff_time=chunk,
+        chunk_size=None,
+        feature_set=_worker_data["feature_set"],
+        entityset=_worker_data["entityset"],
+        approximate=approximate,
+        training_window=training_window,
+        save_progress=save_progress,
+        no_unapproximated_aggs=no_unapproximated_aggs,
+        cutoff_df_time_col=cutoff_df_time_col,
+        target_time=target_time,
+        pass_columns=pass_columns,
+        progress_bar=None,
+        progress_callback=None,
+        include_cutoff_time=include_cutoff_time,
+        schema=schema,
+    )
 
 
 def parallel_calculate_chunks(
@@ -712,123 +748,81 @@ def parallel_calculate_chunks(
     progress_callback=None,
     include_cutoff_time=True,
 ):
-    import_or_raise(
-        "distributed",
-        "Dask must be installed to calculate feature matrix with n_jobs set to anything but 1",
-    )
-    from dask.base import tokenize
-    from distributed import Future, as_completed
+    # Serialize EntitySet and FeatureSet once for worker initialization
+    pickled_es = cloudpickle.dumps(entityset)
+    pickled_feats = cloudpickle.dumps(feature_set)
 
-    client = None
-    cluster = None
+    # Determine number of workers
+    num_workers = n_jobs_to_workers(n_jobs)
+
+    schema = None
+    if isinstance(cutoff_time, pd.DataFrame):
+        schema = cutoff_time.ww.schema
+        chunks = cutoff_time.groupby(cutoff_df_time_col)
+        cutoff_time_len = cutoff_time.shape[0]
+    else:
+        chunks = cutoff_time
+        cutoff_time_len = len(cutoff_time[1])
+
+    if not chunk_size:
+        chunk_size = _handle_chunk_size(1.0 / num_workers, cutoff_time_len)
+
+    chunks = _chunk_dataframe_groups(chunks, chunk_size)
+    chunks = [df for _, df in chunks]
+
+    if len(chunks) < num_workers:
+        chunk_warning = (
+            "Fewer chunks ({}), than workers ({}) consider reducing the chunk size"
+        )
+        warning_string = chunk_warning.format(len(chunks), num_workers)
+        progress_bar.write(warning_string)
+
+    # Use 'forkserver' start method where available to avoid fork-safety issues;
+    # fall back to 'spawn' on platforms that don't support it (e.g. Windows).
     try:
-        client, cluster = create_client_and_cluster(
-            n_jobs=n_jobs,
-            dask_kwargs=dask_kwargs,
-            entityset_size=entityset.__sizeof__(),
-        )
-        # scatter the entityset
-        # denote future with leading underscore
-        start = time.time()
-        es_token = "EntitySet-{}".format(tokenize(entityset))
-        if es_token in client.list_datasets():
-            msg = "Using EntitySet persisted on the cluster as dataset {}"
-            progress_bar.write(msg.format(es_token))
-            _es = client.get_dataset(es_token)
-        else:
-            _es = client.scatter([entityset])[0]
-            client.publish_dataset(**{_es.key: _es})
+        mp_context = multiprocessing.get_context("forkserver")
+    except ValueError:
+        mp_context = multiprocessing.get_context("spawn")
 
-        # save features to a tempfile and scatter it
-        pickled_feats = cloudpickle.dumps(feature_set)
-        _saved_features = client.scatter(pickled_feats)
-        client.replicate([_es, _saved_features])
-        num_scattered_workers = len(
-            client.who_has([Future(es_token)]).get(es_token, []),
-        )
-        num_workers = len(client.scheduler_info()["workers"].values())
-
-        schema = None
-        if isinstance(cutoff_time, pd.DataFrame):
-            schema = cutoff_time.ww.schema
-            chunks = cutoff_time.groupby(cutoff_df_time_col)
-            cutoff_time_len = cutoff_time.shape[0]
-        else:
-            chunks = cutoff_time
-            cutoff_time_len = len(cutoff_time[1])
-
-        if not chunk_size:
-            chunk_size = _handle_chunk_size(1.0 / num_workers, cutoff_time_len)
-
-        chunks = _chunk_dataframe_groups(chunks, chunk_size)
-
-        chunks = [df for _, df in chunks]
-
-        if len(chunks) < num_workers:  # pragma: no cover
-            chunk_warning = (
-                "Fewer chunks ({}), than workers ({}) consider reducing the chunk size"
+    feature_matrix = []
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=num_workers,
+        initializer=_init_worker,
+        initargs=(pickled_es, pickled_feats),
+        mp_context=mp_context,
+    ) as executor:
+        futures = {}
+        for chunk in chunks:
+            future = executor.submit(
+                _worker_calculate_chunk,
+                chunk=chunk,
+                approximate=approximate,
+                training_window=training_window,
+                save_progress=save_progress,
+                no_unapproximated_aggs=no_unapproximated_aggs,
+                cutoff_df_time_col=cutoff_df_time_col,
+                target_time=target_time,
+                pass_columns=pass_columns,
+                include_cutoff_time=include_cutoff_time,
+                schema=schema,
             )
-            warning_string = chunk_warning.format(len(chunks), num_workers)
-            progress_bar.write(warning_string)
+            futures[future] = chunk
 
-        scatter_warning(num_scattered_workers, num_workers)
-        end = time.time()
-        scatter_time = round(end - start)
-
-        # if enabled, reset timer after scatter for better time remaining estimates
-        if not progress_bar.disable:
-            progress_bar.reset()
-
-        scatter_string = "EntitySet scattered to {} workers in {} seconds"
-        progress_bar.write(scatter_string.format(num_scattered_workers, scatter_time))
-        # map chunks
-        # TODO: consider handling task submission dask kwargs
-        _chunks = client.map(
-            calculate_chunk,
-            chunks,
-            feature_set=_saved_features,
-            chunk_size=None,
-            entityset=_es,
-            approximate=approximate,
-            training_window=training_window,
-            save_progress=save_progress,
-            no_unapproximated_aggs=no_unapproximated_aggs,
-            cutoff_df_time_col=cutoff_df_time_col,
-            target_time=target_time,
-            pass_columns=pass_columns,
-            progress_bar=None,
-            progress_callback=progress_callback,
-            include_cutoff_time=include_cutoff_time,
-            schema=schema,
-        )
-
-        feature_matrix = []
-        iterator = as_completed(_chunks).batches()
-        for batch in iterator:
-            results = client.gather(batch)
-            for result in results:
-                feature_matrix.append(result)
-                previous_progress = progress_bar.n
-                progress_bar.update(result.shape[0])
-                if progress_callback is not None:
-                    (
-                        update,
-                        progress_percent,
-                        time_elapsed,
-                    ) = update_progress_callback_parameters(
-                        progress_bar,
-                        previous_progress,
-                    )
-                    progress_callback(update, progress_percent, time_elapsed)
-
-    except Exception:
-        raise
-    finally:
-        if client is not None:
-            client.close()
-
-        if "cluster" not in dask_kwargs and cluster is not None:
-            cluster.close()  # pragma: no cover
+        for completed in concurrent.futures.as_completed(futures):
+            result = completed.result()
+            feature_matrix.append(result)
+            previous_progress = progress_bar.n
+            progress_bar.update(result.shape[0])
+            if progress_callback is not None:
+                (
+                    update,
+                    progress_percent,
+                    time_elapsed,
+                ) = update_progress_callback_parameters(
+                    progress_bar,
+                    previous_progress,
+                )
+                progress_callback(update, progress_percent, time_elapsed)
 
     ww_init_kwargs = get_ww_types_from_features(
         feature_set.target_features,

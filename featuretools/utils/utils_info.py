@@ -13,8 +13,6 @@ deps = [
     "pandas",
     "tqdm",
     "cloudpickle",
-    "dask",
-    "distributed",
     "psutil",
     "pip",
     "setuptools",

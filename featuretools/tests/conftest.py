@@ -14,28 +14,6 @@ from featuretools.primitives import AggregationPrimitive, TransformPrimitive
 from featuretools.tests.testing_utils import make_ecommerce_entityset
 
 
-@pytest.fixture()
-def dask_cluster():
-    distributed = pytest.importorskip(
-        "distributed",
-        reason="Dask not installed, skipping",
-    )
-    if distributed:
-        with distributed.LocalCluster() as cluster:
-            yield cluster
-
-
-@pytest.fixture()
-def three_worker_dask_cluster():
-    distributed = pytest.importorskip(
-        "distributed",
-        reason="Dask not installed, skipping",
-    )
-    if distributed:
-        with distributed.LocalCluster(n_workers=3) as cluster:
-            yield cluster
-
-
 @pytest.fixture(scope="session")
 def make_es():
     return make_ecommerce_entityset()
