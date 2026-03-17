@@ -722,11 +722,30 @@ class FeatureSetCalculator(object):
                         to_agg[column_id] = []
                     func = f.get_function()
 
-                    # for some reason, using the string count is significantly
-                    # faster than any method a primitive can return
-                    # https://stackoverflow.com/questions/55731149/use-a-function-instead-of-string-in-pandas-groupby-agg
-                    if func == pd.Series.count:
-                        func = "count"
+                    # Using string names for known aggregation functions is both
+                    # faster and avoids FutureWarning in pandas 2.2+ about
+                    # callable-vs-string behavior change.
+                    # Note: np.std/np.var use ddof=0 but pandas currently
+                    # intercepts them and runs ddof=1. Mapping to strings
+                    # preserves this existing behavior and prevents a silent
+                    # change when pandas stops intercepting callables.
+                    _FUNC_TO_STR = {
+                        np.max: "max",
+                        np.min: "min",
+                        np.sum: "sum",
+                        np.mean: "mean",
+                        np.std: "std",
+                        np.var: "var",
+                        pd.Series.count: "count",
+                        pd.Series.median: "median",
+                    }
+                    _str_name = _FUNC_TO_STR.get(func)
+                    if _str_name is not None:
+                        # Only use string for the first occurrence per column;
+                        # duplicates stay as callables for dedup via partial().
+                        str_key = "{}-{}".format(column_id, _str_name)
+                        if str_key not in agg_rename:
+                            func = _str_name
 
                     funcname = func
                     if callable(func):
